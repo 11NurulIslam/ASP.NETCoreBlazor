@@ -1,0 +1,298 @@
+﻿@page "/masterspage"
+@using Microsoft.Extensions.Hosting
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.WebAssembly.Authentication
+@using BlazorApp6.Shared
+@using System.IO;
+
+@attribute [Authorize]
+@inject HttpClient Http
+@inject NavigationManager NavigationManager
+
+<div class="container">
+    <div class="row">
+
+        <div class="col-sm-4">
+            <h2>Appointment</h2>
+            <hr />
+            <div class="form-group">
+                <label for="Appointment_ID" class="control-label">Appointment_ID</label>
+                <input id="Appointment_ID" class="form-control" @bind="@mas.Appointment_ID" @bind:event="oninput" @onkeyup="@(()=>Get2Tables())" />
+            </div>
+            <div class="form-group">
+                <label for="Appointment_Name" class="control-label">Appointment_Name</label>
+                <input id="Appointment_Name" class="form-control" @bind="@mas.Appointment_Name" />
+            </div>
+            <div class="form-group">
+                <label for="Date" class="control-label">Date</label>
+                <input id="Date" class="form-control" @bind="@mas.Date" />
+            </div>
+            <div class="form-group">
+                <label for="Phone" class="control-label">Phone</label>
+                <input id="Phone" class="form-control" @bind="@mas.Phone" />
+            </div>
+        </div>
+        <div class="col-sm-8">
+            <h2>Service</h2>
+            <div class="form-group">
+                <label for="Service_ID" class="control-label">Service_ID</label>
+                <input id="Service_ID" name="Service_ID" @bind="@obj.Service_ID" class="form-control" @onkeyup="@Child_Exists" />
+                <div id="slerror" style="color:red">@error</div>
+            </div>
+
+            <div class="form-group">
+                <label for="Service_Name" class="control-label">Service_Name</label>
+                <input id="Service_Name" @bind="@obj.Service_Name" class="form-control" />
+            </div>
+            <div class="form-group">
+                <label for="Service_Fee" class="control-label">Service_Fee</label>
+                <input id="Service_Fee" @bind="@obj.Service_Fee" class="form-control" />
+            </div>
+            <div class="form-group">
+                <label for="Picture" class="control-label">Picture</label>
+                <input id="Picture" @bind="@obj.Picture" class="form-control" />
+                <InputFile OnChange="OnChange" id="Picture" class="btn-primary" />
+                <div class="input-group-append">
+                    <button class="btn btn-success" @onclick="@Upload" disabled="@isDisabled">Upload</button>
+                </div>
+            </div>
+            <hr />
+            <div class="form-group">
+                <input type="button" value="Add" @onclick="@Add" class="btn btn-primary" />
+                <input type="button" value="Update" @onclick="@Update" class="btn btn-primary" />
+            </div>
+            <h2>Service Table</h2>
+            <table id="Service" class="table">
+                <thead>
+                    <tr><th>SlNo</th><th>Service_ID</th><th>Service_Name</th><th>Service_Fee</th><th>Picture</th><th></th></tr>
+                </thead>
+                <tbody>
+                    @if (det is null)
+                    {
+                        <p><em>Loading... !</em></p>
+                    }
+                    else
+                    {
+                        int index = 1;
+                        @foreach (var a in det)
+                        {
+                            int sl2 = index - 1;
+                            <tr>
+                                <td>@index</td>
+                                <td>@a.Service_ID</td>
+                                <td>@a.Service_Name</td>
+                                <td>@a.Service_Fee</td>
+                                <td><img src="/uploads/@a.Picture" width="100" /></td>
+                                <td>
+                                    <a class="nav-link" @onclick="@(() =>Show(@a.Service_ID,@a.Service_Name,@sl2,@a.Service_Fee,@a.Picture))">
+                                        <span class="oi oi-pencil" aria-hidden="true">@index Edit</span>
+                                    </a>
+                                    <a class="nav-link" @onclick="@(()=>Delete(@a.Service_ID))">
+                                        <span class="oi oi-trash" aria-hidden="true">Delete</span>
+                                    </a>
+                                </td>
+                            </tr>
+                            index++;
+                        }
+                    }
+                </tbody>
+            </table>
+
+
+
+
+            <button type="button" class="btn btn-primary" @onclick="@CreateCustomer">Save</button>
+            <button type="button" class="btn btn-info" @onclick="@UpdateCustomer">Update</button>
+            <button type="button" class="btn btn-danger" @onclick="@DeleteCustomer">Delete</button>
+
+        </div>
+    </div>
+
+</div>
+
+
+
+
+@code {
+
+    List<ImageFile> filesBase64 = new List<ImageFile>();
+    string message = "InputFile";
+    bool isDisabled = false;
+
+    async Task OnChange(InputFileChangeEventArgs e)
+    {
+        var files = e.GetMultipleFiles(); // get the files selected by the users
+        foreach (var file in files)
+        {
+            var resizedFile = await file.RequestImageFileAsync(file.ContentType, 640, 480); // resize the image file
+            var buf = new byte[resizedFile.Size]; // allocate a buffer to fill with the file's data
+            using (var stream = resizedFile.OpenReadStream())
+            {
+                await stream.ReadAsync(buf); // copy the stream to the buffer
+            }
+            filesBase64.Add(new ImageFile { base64data = Convert.ToBase64String(buf), contentType = file.ContentType, fileName = file.Name }); // convert to a base64 string!!
+            obj.Picture = file.Name;
+        }
+        message = "Click UPLOAD to continue";
+    }
+
+    async Task Upload()
+    {
+        isDisabled = true;
+        using (var msg = await Http.PostAsJsonAsync<List<ImageFile>>("/api/upload", filesBase64, System.Threading.CancellationToken.None))
+        {
+            isDisabled = false;
+            if (msg.IsSuccessStatusCode)
+            {
+                message = $"{filesBase64.Count} files uploaded";
+                filesBase64.Clear();
+            }
+        }
+    }
+
+
+
+
+
+
+
+    List<Service> det = new List<Service>();
+    int sl = 0;
+    Service obj = new Service();
+    Appointment mas = new Appointment();
+    string error = "";
+    protected override async Task OnInitializedAsync()
+    {
+        //AppointmentServiceVm md = new AppointmentServiceVm();
+        // EmpObj = await Task.Run(() => employeeService.GetAllEmployeesAsync());
+        // mas.Appointment_ID = mdService.GenerateCode();
+    }
+    protected async void CreateCustomer()
+    {
+        //AppointmentServiceVm md = new AppointmentServiceVm();
+        //md.Appointment = mas;
+        //md.Service = det;
+        //mdService.AddAppointmentServiceVm(md);
+        //Refresh();
+        //mas.Appointment_ID = mdService.GenerateCode();
+        AppointmentServiceVm md = new AppointmentServiceVm();
+        md.Appointment = mas;
+        md.Service = det;
+        // mdService.AddMasterDetailsVm(md);
+        await Http.PostAsJsonAsync("api/Master/AddMasterDetailsVm", md);
+        Refresh();
+
+    }
+
+
+    protected async void Add()
+    {
+        det.Add(new Service() { Service_ID = obj.Service_ID, Service_Name = obj.Service_Name, Appointment_ID = mas.Appointment_ID, Service_Fee = obj.Service_Fee, Picture = obj.Picture });
+        InvokeAsync(() => { StateHasChanged(); });
+
+    }
+    protected async void Update()
+    {
+        det[sl].Service_ID = obj.Service_ID;
+        det[sl].Service_Name = obj.Service_Name;
+        det[sl].Service_Fee = obj.Service_Fee;
+        det[sl].Picture = obj.Picture;
+        InvokeAsync(() => { StateHasChanged(); });
+    }
+    protected async void Delete(string id)
+    {
+        var d = (from a in det
+                 where a.Service_ID == id
+                 select a).First();
+        det.Remove(d);
+        InvokeAsync(() => { StateHasChanged(); });
+    }
+    public async void Refresh()
+    {
+
+        det.Clear();
+        obj = new Service();
+        mas = new Appointment();
+        InvokeAsync(() => { StateHasChanged(); });
+    }
+    protected async void UpdateCustomer()
+    {
+        //AppointmentServiceVm md = new AppointmentServiceVm();
+        //md.Appointment = mas;
+        //md.Service = det;
+        //mdService.UpdateAppointmentServiceVm(md);
+        //Refresh();
+        //mas.Appointment_ID = mdService.GenerateCode();
+        AppointmentServiceVm md = new AppointmentServiceVm();
+        md.Appointment = mas;
+        md.Service = det;
+        //mdService.UpdateMasterDetailsVm(md);
+        await Http.PutAsJsonAsync("api/Master/UpdateMasterDetailsVm", md);
+        Refresh();
+
+    }
+    protected async void DeleteCustomer()
+    {
+        //mdService.RemoveAppointmentServiceVm(mas.Appointment_ID);
+        await Http.DeleteAsync("api/Master/RemoveMasterDetailsVm/" + mas.Appointment_ID);
+        Refresh();
+
+    }
+    protected async void Get2Tables()
+    {
+        //AppointmentServiceVm md = new AppointmentServiceVm();
+        //md = mdService.GetTwoTables2(mas.Appointment_ID);
+        //if (md.Appointment != null) mas = md.Appointment;
+        //if (md.Service.Count > 0)
+        //    det = md.Service;
+        //else
+        //    det.Clear();
+        AppointmentServiceVm md = new AppointmentServiceVm();
+        md = await Http.GetFromJsonAsync<AppointmentServiceVm>("api/Master/Get/" + mas.Appointment_ID);
+        if (md.Appointment != null)
+            mas = md.Appointment;
+        if (md.Service.Count > 0)
+            det = md.Service;
+        else
+            det.Clear();
+
+        InvokeAsync(() => { StateHasChanged(); });
+    }
+    protected async void Show(string a, string b, int sl1, string c, string d)
+    {
+        obj.Service_ID = a;
+        obj.Service_Name = b;
+        sl = sl1;
+        obj.Service_Fee = c;
+        obj.Picture = d;
+    }
+    //string rootpath = System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), "wwwroot");
+    string rootpath = @"E:\r51\Blazor\Project\BlazorApp6\BlazorApp6\Client\wwwroot";// Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads");
+    string Message = "No file(s) selected";
+    IReadOnlyList<IBrowserFile> selectedFiles;
+    private async Task SingleUpload(InputFileChangeEventArgs e)
+    {
+        selectedFiles = e.GetMultipleFiles();
+        foreach (var file in selectedFiles)
+        {
+            Stream stream = file.OpenReadStream();
+            var path = rootpath+@"\uploads\"+file.Name;
+            FileStream fs = File.Create(path);
+            await stream.CopyToAsync(fs);
+            obj.Picture = file.Name;
+            stream.Close();
+            fs.Close();
+        }
+        this.StateHasChanged();
+    }
+    protected async void Child_Exists()
+    {
+        //int a = mdService.Child_Exists(obj.Service_ID);
+        //if (a == 1)
+        //    error = "Exists";
+        //else
+        //    error = "";
+    }
+
+}
+
